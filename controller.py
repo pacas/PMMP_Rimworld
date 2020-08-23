@@ -14,6 +14,7 @@ import sqlite3
 import atexit
 import design.styles as style
 import files_const as pth
+import fuckit
 
 
 class Controller(QWidget):
@@ -51,17 +52,14 @@ class Controller(QWidget):
             self.logs.error(err, exc_info=True)
 
     def show_ModManager(self):
-        try:
-            self.set_Game_Location_MM()
-            self.ModManager = manager.ModManager(self.launch, self.conn, self.cursor, self.gamepath, self.steamMM)
-            self.ModManager.setStyleSheet(style.mm_buttons)
-            self.ModManager.openBackupMenu.triggered.connect(self.show_Backups)
-            self.ModManager.exitACT.triggered.connect(lambda: self.ModManager.close())
-            self.ModManager.exitButton.clicked.connect(lambda: self.ModManager.close())
-            self.ModManager.show()
-            self.launch = 0
-        except Exception as err:
-            self.logs.error(err, exc_info=True)
+        self.set_Game_Location_MM()
+        self.ModManager = manager.ModManager(self.launch, self.conn, self.cursor, self.gamepath, self.steamMM, self.ignore)
+        self.ModManager.setStyleSheet(style.mm_buttons)
+        self.ModManager.openBackupMenu.triggered.connect(self.show_Backups)
+        self.ModManager.exitACT.triggered.connect(lambda: self.ModManager.close())
+        self.ModManager.exitButton.clicked.connect(lambda: self.ModManager.close())
+        self.ModManager.show()
+        self.launch = 0
 
     def show_Options(self):
         try:
@@ -105,29 +103,19 @@ class Controller(QWidget):
         atexit.register(self.close_connection, self.conn)
 
     def close_connection(self, conn):
-        print('Connection closed')
         conn.commit()
         conn.close()
+        print('Connection closed')
 
 # -------------------I WILL CLOSE THIS ALL----------------------
+    @fuckit
     def close_Launcher(self):
         self.close_connection(self.conn)
-        try:
-            self.ModManager.close()
-        except AttributeError:
-            pass
-        try:
-            self.Options.close()
-        except AttributeError:
-            pass
-        try:
-            self.Launcher.close()
-        except AttributeError:
-            pass
-        try:
-            self.Backups.close()
-        except AttributeError:
-            pass
+        self.ModManager.close()
+        self.Options.close()
+        self.Backups.close()
+        self.Launcher.close()
+        sys.exit()
 
 # -----------------Launcher settings and ini file--------------
 # I want to believe that no one will break this function, because I'm too lazy to rewrite it
@@ -136,10 +124,12 @@ class Controller(QWidget):
             with open(pth.ini_file, 'r', encoding='UTF-8') as settings:
                 data = settings.readlines()
                 self.gamepath = data[0][14:-1]
-                self.lang = data[1][5:]
+                self.lang = data[1][5:-1]
+                self.ignore = data[2][21:]
                 self.launch = 0
         except FileNotFoundError:
             self.launch = 1
+            self.ignore = 1
             if self.check == 0:
                 print("\a")
                 QMessageBox.about(self, "Attention",
@@ -149,11 +139,10 @@ class Controller(QWidget):
                 if okPressed:
                     test = self.gamepath + '\\RimWorldWin64.exe'
                     if os.path.isfile(test):
-                        self.ini_Write(self.gamepath, 'eng')
+                        self.ini_Write(self.gamepath)
                         print("\a")
                         QMessageBox.about(self, 'Warning',
-                                          '''Attention, if this is your first launch of the mod manager,
-                                          YOU MUST RUN THE GAME AT LEAST ONCE!''')
+                        '''Attention, if this is your first launch of the mod manager,\nYOU MUST RUN THE GAME AT LEAST ONCE!''')
                     else:
                         print("\a")
                         QMessageBox.about(self, 'Warning', 'Enter valid path')
@@ -164,7 +153,7 @@ class Controller(QWidget):
                     self.first_Launch()
             else:
                 self.gamepath = self.steam
-                self.ini_Write(self.steam, 'eng')
+                self.ini_Write(self.steam)
 
     def get_Disk_Links(self):
         try:
@@ -185,10 +174,10 @@ class Controller(QWidget):
         except Exception:
             self.steamMM = ''
 
-    def ini_Write(self, path, lang):
+    def ini_Write(self, path):
         try:
             with open(pth.ini_file, 'w+', encoding='UTF-8') as settings:
-                settings.write('game_location=' + path + '\nlang=' + lang)
+                settings.write('game_location=' + path + '\nlang=eng\nmultipackage_warning=1')
         except FileNotFoundError:
             print("\a")
             QMessageBox.about(self, "Warning", "Error")
@@ -196,9 +185,9 @@ class Controller(QWidget):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    Controller = Controller()
     # --------Design options------------
     app.setStyle('Fusion')
     app.setStyleSheet(style.main_design)
+    Controller = Controller()
     # --------Final close func----------
     sys.exit(app.exec())

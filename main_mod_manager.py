@@ -14,9 +14,10 @@ from subprocess import Popen
 import logging
 from glob import glob
 import fuckit
-import xml.etree.ElementTree as ET
+from lxml import etree as ET
 import langSelector as l
 import files_const as pth
+from collections import Counter
 
 
 # keys for sorting
@@ -45,13 +46,14 @@ class Mod():
 
 
 class ModManager(QMainWindow):
-    def __init__(self, first, conn, cursor, mainFolder, steamFolder, *args, **kwargs):
+    def __init__(self, first, conn, cursor, mainFolder, steamFolder, ignore, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # ------DB connection---------------
         self.conn = conn
         self.cursor = cursor
         self.localPath = mainFolder
         self.steamPath = steamFolder
+        self.ignoredWarning = ignore
         # ------Lists and disk files--------
         self.get_Disk_Links()
         self.modList = list()
@@ -75,6 +77,8 @@ class ModManager(QMainWindow):
         self.modListBackup = self.modList
         # ------UI setup--------------------
         self.setupUI()
+        if self.ignoredWarning == '1':
+            self.duplicateWarning()
 
     def setupUI(self):
         # ------Window setup----------------
@@ -202,7 +206,7 @@ class ModManager(QMainWindow):
         # -------------
         if self.steamPath != '':
             steamModsFolder = QAction(l.r.openSteamMods, self)
-            steamModsFolder.triggered.connect(lambda: self.folders_Opener(self.steamMM))
+            steamModsFolder.triggered.connect(lambda: self.folders_Opener(self.steamPath))
             self.foldersMenu.addAction(steamModsFolder)
         # ------Backups---------------------
         self.openBackupMenu = QAction(l.r.openBackups, self)
@@ -244,15 +248,15 @@ class ModManager(QMainWindow):
             for mod in allModList:
                 info = mod[:-9] + 'PublishedFileId.txt'
                 if os.path.isfile(info):
-                    with open(info, 'r+') as file:
+                    with open(info, 'r') as file:
                         temp = file.read()
                     modsMatrix.append([mod, temp])
                 else:
-                    modsMatrix.append([mod])
+                    modsMatrix.append([mod, ''])
             if firstLaunch == 1:
                 prior = 0
-                for mod in modsMatrix:
-                    self.getModData(mod, prior, 0)
+                for oneTwo in modsMatrix:
+                    self.getModData(oneTwo[0], prior, 0, oneTwo[1])
                     prior += 1
             else:
                 self.cursor.execute("SELECT COUNT (*) FROM mods")
@@ -262,17 +266,21 @@ class ModManager(QMainWindow):
                 records = self.cursor.fetchall()
                 for mod in records:
                     if mod[9] not in allModList:
-                        self.cursor.execute("DELETE FROM mods WHERE modfile = '" + mod[9] + "'")
-                for mod in allModList:
-                    self.cursor.execute("SELECT EXISTS(SELECT name FROM mods WHERE modfile = '" + mod + "')")
+                        tmp = mod[9]
+                        tmp = tmp.replace("'", "''")
+                        self.cursor.execute(f"DELETE FROM mods WHERE modfile = '{tmp}'")
+                for oneTwo in modsMatrix:
+                    tmp = oneTwo[0]
+                    tmp = tmp.replace("'", "''")
+                    self.cursor.execute(f"SELECT EXISTS(SELECT name FROM mods WHERE modfile = '{tmp}')")
                     records = self.cursor.fetchall()
                     if records[0][0] == 0:
-                        self.getModData(mod, prior, 0)
+                        self.getModData(oneTwo[0], prior, 0, oneTwo[1])
                         prior += 1
                     else:
-                        self.modsToCheck.append(mod)
+                        self.modsToCheck.append(oneTwo)
                 for mod in self.modsToCheck:
-                    self.getModData(mod, prior, 1)
+                    self.getModData(oneTwo[0], prior, 1, oneTwo[1])
             self.cursor.executemany("INSERT INTO mods VALUES (?,?,?,?,?,?,?,?,?,?)", self.modsToAdd)
             self.cursor.executemany("UPDATE mods SET name = ?, packageId = ?, url = ?, supportedVersions = ?, description = ? WHERE modfile = ?", self.newValuesForMods)
             self.conn.commit()
@@ -280,31 +288,56 @@ class ModManager(QMainWindow):
             self.logs.error(err, exc_info=True)
 
     @fuckit
-    def getModData(self, mod, prior, update):
+    def getModData(self, mod, prior, update, steamModID):
         try:
-            if len(mod) > 1:
+            if mod.find(r'RimWorld\Mods') == -1:
                 source = 'steam'
-                modID = mod[1]
             else:
                 source = 'local'
-                modID = ''
-            tree = ET.parse(mod[0])
+            modID = steamModID
+            parser = ET.XMLParser(remove_blank_text=True)
+            tree = ET.parse(mod, parser)
             root = tree.getroot()
             name = root.findall("name")[0].text
+            author = root.findall("author")[0].text
+            packageId = ''
             packageId = root.findall("packageId")[0].text
             packageId = packageId.lower()
+            if packageId == '':
+                newPackage1 = author.lower()
+                newPackage2 = name.lower()
+                newPackage1 = ''.join(e for e in newPackage1 if e.isalnum())
+                newPackage2 = ''.join(e for e in newPackage2 if e.isalnum())
+                newPackage = newPackage1 + '.' + newPackage2
+                if len(newPackage) > 59:
+                    if len(newPackage1) < 50:
+                        newPackage = newPackage1 + '.'
+                        newPackage += newPackage2[:59 - len(newPackage)]
+                    else:
+                        newPackage = newPackage1[:30] + '.' + newPackage2[:7]
+                self.SubElementWithText(root, 'packageId', newPackage)
+                packageId = newPackage
+                print(newPackage)
+                tree.write(mod, pretty_print=True, xml_declaration=True)
+            url = ''
             url = root.findall("url")[0].text
+            description = ''
             description = root.findall("description")[0].text
             supportedVersionsList = root.findall("supportedVersions")[0]
             supportedVersions = ''
-            for i in supportedVersionsList:
-                supportedVersions += i.text + r', '
+            if len(supportedVersionsList) > 1:
+                for i in supportedVersionsList:
+                    supportedVersions += i.text + r', '
+            else:
+                supportedVersions = supportedVersionsList[0].text
             supportedVersions = supportedVersions[:-2]
-            mods = [name, packageId, url, modID, supportedVersions, description, 0, source, prior, mod[0]]
+            if supportedVersions == '':
+                supportedVersions = root.findall("targetVersion")[0].text
+            mods = [name, packageId, url, modID, supportedVersions, description, 0, source, prior, mod]
             if update == 0:
                 self.modsToAdd.append(mods)
             else:
-                newVal = [name, packageId, url, supportedVersions, description, mod[0]]
+                newVal = [name, packageId, url, supportedVersions, description, mod]
                 self.newValuesForMods.append(newVal)
         except Exception as err:
             self.logs.error(err, exc_info=True)
@@ -312,30 +345,53 @@ class ModManager(QMainWindow):
 # ----------------------------Get final data-------------------------------------
     def getActivatedMods(self):
         try:
-            tree = ET.parse(self.configFile)
-            root = tree.getroot()
-            activeModsList = root.findall("activeMods")[0]
-            activeMods = []
-            for i in activeModsList:
+            parser = ET.XMLParser(remove_blank_text=True)
+            self.tree = ET.parse(self.configFile, parser)
+            self.root = self.tree.getroot()
+            self.activeModsList = self.root.findall("activeMods")[0]
+            activeMods = list()
+            for i in self.activeModsList:
                 tmp = i.text
                 tmp = tmp.lower()
                 activeMods.append(tmp)
+            activeMods.remove('ludeon.rimworld')
+            if 'ludeon.rimworld.royalty' in activeMods:
+                activeMods.remove('ludeon.rimworld.royalty')
             priorCounter = 0
-            modListSplitter = []
+            modListSplitter = list()
             for package in activeMods:
+                duplicateFlag = 0
+                check = len(modListSplitter)
+                if '_steam' in package:
+                    package = package[:-6]
+                    duplicateFlag = 1
                 for mod in self.modList:
                     if package == mod.packageId:
-                        mod.prior = priorCounter
-                        mod.isEnabled = 1
-                        modListSplitter.append(mod)
-                        break
-                priorCounter += 1
-            notActiveModsList = [i for i in self.modList + modListSplitter if i not in self.modList or i not in modListSplitter]
+                        if duplicateFlag == 1 and mod.source == 'steam':
+                            mod.prior = priorCounter
+                            mod.isEnabled = 1
+                            modListSplitter.append(mod)
+                            break
+                        elif duplicateFlag == 1 and mod.source == 'local':
+                            continue
+                        else:
+                            mod.prior = priorCounter
+                            mod.isEnabled = 1
+                            modListSplitter.append(mod)
+                            break
+                if check != len(modListSplitter):
+                    priorCounter += 1
+            notActiveModsList = [i for i in self.modList if i not in modListSplitter]
             for mod in notActiveModsList:
                 mod.prior = priorCounter
                 priorCounter += 1
             self.modList = modListSplitter + notActiveModsList
-            # дубликаты локальные
+            self.diplicateModTestList = list()
+            for mod in self.modList:
+                self.diplicateModTestList.append(mod.packageId)
+            self.duplicatesList = [item for item, count in Counter(self.diplicateModTestList).items() if count > 1]
+            self.duplicateResolver()
+            self.saveInDB()
         except Exception as err:
             self.logs.error(err, exc_info=True)
 
@@ -357,6 +413,7 @@ class ModManager(QMainWindow):
 
 # ----------------------Table and other visual-----------------------------------
     def dataDisplay(self, modList):
+        self.retrieveData()
         self.modList = modList
         self.table.setRowCount(0)
         self.table.setRowCount(len(modList))
@@ -364,7 +421,6 @@ class ModManager(QMainWindow):
         self.table.setHorizontalHeaderLabels(labels)
         for i in range(3):
             self.table.horizontalHeaderItem(i).setTextAlignment(Qt.AlignHCenter)
-
         counter = 0
         for mod in modList:
             mod.prior = counter
@@ -388,9 +444,8 @@ class ModManager(QMainWindow):
                     self.table.item(counter, i).setBackground(QColor.fromRgb(191, 245, 189))
             # ----------------------------------
             counter += 1
-
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-    
+
     def retrieveData(self):
         modListNew = []
         rowCount = self.table.rowCount()
@@ -542,9 +597,9 @@ class ModManager(QMainWindow):
 # -----------------------------Additional mod info-------------------------------
     def displayModData(self, row, column):
         try:
+            self.retrieveData()
             self.modname.setText(self.modList[row].name)
-            texttags = l.r.tagsForField
-            texttags += self.modList[row].description
+            texttags = str(self.modList[row].description)
             self.linkButton.disconnect()
             self.linkSteamButton.disconnect()
             self.linkButton.clicked.connect(lambda: webbrowser.open(self.modList[row].url))
@@ -565,6 +620,34 @@ class ModManager(QMainWindow):
             self.logs.error(err, exc_info=True)
 
 # -----------------------------Technical stuff-----------------------------------
+    def duplicateWarning(self):
+        if len(self.diplicateModTestList) != len(set(self.diplicateModTestList)):
+            print("\a")
+            msg = QMessageBox.question(self, l.r.attention,
+            l.r.duplicates, QMessageBox.Ok |
+            QMessageBox.Ignore, QMessageBox.Ok)
+            if msg == QMessageBox.Ignore:
+                self.ignoredWarning = 0
+                with open(pth.ini_file, 'r', encoding='UTF-8') as settings:
+                    data = settings.read()
+                    data = data.replace('multipackage_warning=1', 'multipackage_warning=0')
+                with open(pth.ini_file, 'w', encoding='UTF-8') as settings:
+                    settings.write(data)
+    
+    def duplicateResolver(self):
+        for mod in self.modList:
+            if mod.packageId in self.duplicatesList:
+                if '(St)' not in mod.name:
+                    if '(L)' not in mod.name:
+                        if mod.source == 'steam':
+                            mod.name = mod.name + ' (St)'
+                        else:
+                            mod.name = mod.name + ' (L)'
+
+    def SubElementWithText(self, parent, tag, text):
+        data = ET.SubElement(parent, tag)
+        data.text = text
+
     def reloadOrder(self):
         try:
             self.modList = self.modListBackup
@@ -580,9 +663,7 @@ class ModManager(QMainWindow):
         try:
             self.retrieveData()
             self.saveInDB()
-            # self.saveInGame()
-            # self.writeLoadOrder()
-            # self.writeDisplayOrder()
+            self.saveInGame()
         except Exception as err:
             self.logs.error(err, exc_info=True)
 
@@ -611,3 +692,40 @@ class ModManager(QMainWindow):
             allFile.append(md)
         self.cursor.executemany("INSERT INTO mods VALUES (?,?,?,?,?,?,?,?,?,?)", allFile)
         self.conn.commit()
+
+    def saveInGame(self):
+        try:
+            try:
+                self.DLC = self.root.findall("knownExpansions")[0]
+                self.DLC = self.DLC[0]
+                noDLC = 0
+            except Exception:
+                noDLC = 1
+            self.activeModsList.clear()
+            tempList = self.modList
+            for mod in tempList:
+                if mod.packageId == 'brrainz.harmony' and mod.isEnabled == 1:
+                    self.SubElementWithText(self.activeModsList, 'li', 'brrainz.harmony')
+                    tempList.remove(mod)
+                    continue
+                if mod.packageId == 'automatic.startupimpact' and mod.isEnabled == 1:
+                    self.SubElementWithText(self.activeModsList, 'li', 'automatic.startupimpact')
+                    tempList.remove(mod)
+                    continue
+            self.SubElementWithText(self.activeModsList, 'li', 'ludeon.rimworld')
+            if noDLC == 0:
+                self.SubElementWithText(self.activeModsList, 'li', 'ludeon.rimworld.royalty')
+            tempList.sort(key=lambda x: x.prior, reverse=False)
+            for mod in tempList:
+                if mod.isEnabled == 1:
+                    if mod.packageId in self.duplicatesList:
+                        if mod.source == 'steam':
+                            self.SubElementWithText(self.activeModsList, 'li', mod.packageId + '_steam')
+                        else:
+                            # требуется тест
+                            self.SubElementWithText(self.activeModsList, 'li', mod.packageId)
+                    else:
+                        self.SubElementWithText(self.activeModsList, 'li', mod.packageId)
+            self.tree.write(self.configFile, pretty_print=True, xml_declaration=True)
+        except Exception as err:
+            self.logs.error(err, exc_info=True)

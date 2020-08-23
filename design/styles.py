@@ -1,18 +1,18 @@
 main_design = '''
         QPushButton {
-            background-color:#FFFFFF;
+            background-color:#FFFFE0;
             border-radius:18px;
-            border:2px solid #4B4B4B;
+            border:2px solid #1E1E1E;
             color:#0058D2;
             font-family:Arial;
             font-size:15px;
             font-weight:bold;}
 
         QPushButton:hover {
-            background-color:#FFFFE0;}
+            background-color:#FFE4AE;}
 
         QPushButton:pressed {
-        background-color: #FFFFAD;}
+        background-color: #FFB252;}
 
         QComboBox {
         border: 1px solid gray;
