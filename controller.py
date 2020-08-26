@@ -31,6 +31,7 @@ class Controller(QWidget):
         handler.setFormatter(formatter)
         self.logs.setLevel(logging.ERROR)
         self.logs.addHandler(handler)
+        atexit.register(self.close_Launcher)
         # --------Launcher window-----------
         try:
             self.get_Disk_Links()
@@ -100,22 +101,21 @@ class Controller(QWidget):
                             (name text, packageId text, url text, modID text, supportedVersions text,
                              description text, state bit, source text, prior int, modfile text)''')
         self.conn.commit()
-        atexit.register(self.close_connection, self.conn)
 
-    def close_connection(self, conn):
-        conn.commit()
-        conn.close()
+    def close_connection(self):
+        self.conn.commit()
+        self.conn.close()
         print('Connection closed')
 
 # -------------------I WILL CLOSE THIS ALL----------------------
     @fuckit
     def close_Launcher(self):
-        self.close_connection(self.conn)
         self.ModManager.close()
         self.Options.close()
         self.Backups.close()
         self.Launcher.close()
-        sys.exit()
+        self.close_connection()
+        sys.exit(0)
 
 # -----------------Launcher settings and ini file--------------
 # I want to believe that no one will break this function, because I'm too lazy to rewrite it

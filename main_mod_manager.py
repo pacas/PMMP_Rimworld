@@ -219,9 +219,9 @@ class ModManager(QMainWindow):
 
 # ---------------------Setting paths of the game----------------------------------
     def get_Disk_Links(self):
-        self.localMods = self.localPath + '\Mods'
-        self.configFolder = os.getenv('LOCALAPPDATA') + 'Low\Ludeon Studios\RimWorld by Ludeon Studios'
-        self.configFile = self.configFolder + '\Config\ModsConfig.xml'
+        self.localMods = self.localPath + r'\Mods'
+        self.configFolder = os.getenv('LOCALAPPDATA') + r'Low\Ludeon Studios\RimWorld by Ludeon Studios'
+        self.configFile = self.configFolder + r'\Config\ModsConfig.xml'
         self.url = 'https://steamcommunity.com/sharedfiles/filedetails/?id='
         self.steam_url = 'steam://url/CommunityFilePage/'
 
@@ -240,9 +240,9 @@ class ModManager(QMainWindow):
             self.modsToAdd = list()
             self.modsToCheck = list()
             self.newValuesForMods = list()
-            localModList = glob(self.localMods + '\*\About\About.xml')
+            localModList = glob(self.localMods + r'\*\About\About.xml')
             if self.steamPath != '':
-                steamModList = glob(self.steamPath + '\*\About\About.xml')
+                steamModList = glob(self.steamPath + r'\*\About\About.xml')
                 allModList = steamModList + localModList
             modsMatrix = []
             for mod in allModList:
@@ -289,42 +289,42 @@ class ModManager(QMainWindow):
 
     @fuckit
     def getModData(self, mod, prior, update, steamModID):
+        if mod.find(r'RimWorld\Mods') == -1:
+            source = 'steam'
+        else:
+            source = 'local'
+        modID = steamModID
+        parser = ET.XMLParser(remove_blank_text=True)
+        tree = ET.parse(mod, parser)
+        root = tree.getroot()
+        name = root.findall("name")[0].text
+        author = root.findall("author")[0].text
+        packageId = ''
+        packageId = root.findall("packageId")[0].text
+        packageId = packageId.lower()
+        if packageId == '':
+            newPackage1 = author.lower()
+            newPackage2 = name.lower()
+            newPackage1 = ''.join(e for e in newPackage1 if e.isalnum())
+            newPackage2 = ''.join(e for e in newPackage2 if e.isalnum())
+            newPackage = newPackage1 + '.' + newPackage2
+            if len(newPackage) > 59:
+                if len(newPackage1) < 50:
+                    newPackage = newPackage1 + '.'
+                    newPackage += newPackage2[:59 - len(newPackage)]
+                else:
+                    newPackage = newPackage1[:30] + '.' + newPackage2[:7]
+            self.SubElementWithText(root, 'packageId', newPackage)
+            packageId = newPackage
+            print(newPackage)
+            tree.write(mod, pretty_print=True, xml_declaration=True)
+        url = ''
+        url = root.findall("url")[0].text
+        description = ''
+        description = root.findall("description")[0].text
+        supportedVersionsList = root.findall("supportedVersions")[0]
+        supportedVersions = ''
         try:
-            if mod.find(r'RimWorld\Mods') == -1:
-                source = 'steam'
-            else:
-                source = 'local'
-            modID = steamModID
-            parser = ET.XMLParser(remove_blank_text=True)
-            tree = ET.parse(mod, parser)
-            root = tree.getroot()
-            name = root.findall("name")[0].text
-            author = root.findall("author")[0].text
-            packageId = ''
-            packageId = root.findall("packageId")[0].text
-            packageId = packageId.lower()
-            if packageId == '':
-                newPackage1 = author.lower()
-                newPackage2 = name.lower()
-                newPackage1 = ''.join(e for e in newPackage1 if e.isalnum())
-                newPackage2 = ''.join(e for e in newPackage2 if e.isalnum())
-                newPackage = newPackage1 + '.' + newPackage2
-                if len(newPackage) > 59:
-                    if len(newPackage1) < 50:
-                        newPackage = newPackage1 + '.'
-                        newPackage += newPackage2[:59 - len(newPackage)]
-                    else:
-                        newPackage = newPackage1[:30] + '.' + newPackage2[:7]
-                self.SubElementWithText(root, 'packageId', newPackage)
-                packageId = newPackage
-                print(newPackage)
-                tree.write(mod, pretty_print=True, xml_declaration=True)
-            url = ''
-            url = root.findall("url")[0].text
-            description = ''
-            description = root.findall("description")[0].text
-            supportedVersionsList = root.findall("supportedVersions")[0]
-            supportedVersions = ''
             if len(supportedVersionsList) > 1:
                 for i in supportedVersionsList:
                     supportedVersions += i.text + r', '
@@ -605,7 +605,7 @@ class ModManager(QMainWindow):
             self.linkButton.clicked.connect(lambda: webbrowser.open(self.modList[row].url))
             self.linkSteamButton.clicked.connect(lambda: webbrowser.open(self.modList[row].url))
             try:
-                self.printModPreview(self.modList[row].modfile[:-9] + '\preview.png')
+                self.printModPreview(self.modList[row].modfile[:-9] + r'\preview.png')
             except Exception:
                 self.printModPreview(pth.nologo)
             if self.modList[row].source == 'local':
@@ -624,8 +624,7 @@ class ModManager(QMainWindow):
         if len(self.diplicateModTestList) != len(set(self.diplicateModTestList)):
             print("\a")
             msg = QMessageBox.question(self, l.r.attention,
-            l.r.duplicates, QMessageBox.Ok |
-            QMessageBox.Ignore, QMessageBox.Ok)
+            l.r.duplicates, QMessageBox.Ok | QMessageBox.Ignore, QMessageBox.Ok)
             if msg == QMessageBox.Ignore:
                 self.ignoredWarning = 0
                 with open(pth.ini_file, 'r', encoding='UTF-8') as settings:
@@ -633,7 +632,7 @@ class ModManager(QMainWindow):
                     data = data.replace('multipackage_warning=1', 'multipackage_warning=0')
                 with open(pth.ini_file, 'w', encoding='UTF-8') as settings:
                     settings.write(data)
-    
+
     def duplicateResolver(self):
         for mod in self.modList:
             if mod.packageId in self.duplicatesList:

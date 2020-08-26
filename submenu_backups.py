@@ -72,7 +72,7 @@ class Backups(QMainWindow):
                 today = datetime.datetime.today()
                 bfile.write(name + ' ' + str(len(modList)) + ' ' + today.strftime('%H:%M:%S-%d/%b/%Y') + '\n')
                 for mod in modList:
-                    bfile.write(mod.modID + ' ' + str(mod.isEnabled) + '\n')
+                    bfile.write(f'{mod.modID} {str(mod.isEnabled)} {mod.source} \n')
             self.dataDisplay()
         else:
             print("\a")
@@ -92,10 +92,10 @@ class Backups(QMainWindow):
             newModList = []
             for line in data:
                 line = line.strip()
-                # a = data[i].split(' ')
+                a = line.split(' ')
                 for mod in modList:
-                    if mod.modID == line[:-2]:
-                        mod.isEnabled = int(line[-1:])
+                    if mod.packageId == a[0] and mod.source == a[2]:
+                        mod.isEnabled = int(a[1])
                         mod.prior = counter
                         newModList.append(mod)
                         modList.remove(mod)
